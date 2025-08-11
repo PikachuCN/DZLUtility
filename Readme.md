@@ -2,6 +2,21 @@
 
 一个包含各种不依赖其他类的工具的项目。
 
+## 文件结构
+
+```
+.
+├── AIServices
+│   ├── AliyunOcrClient.cs
+│   ├── MiniMaxT2AClient.cs
+│   └── SiliconFlowClient.cs
+├── Http
+│   ├── EasyHttpClient.cs
+│   └── HttpRequestPool.cs
+└── Win32
+    └── WindowEnumerator.cs
+```
+
 ## 类库使用说明
 
 ### AliyunOcrClient
