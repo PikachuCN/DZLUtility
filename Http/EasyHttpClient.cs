@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 
@@ -53,6 +54,27 @@ public class EasyHttpClient
         {
             EasyHttpClient = easyHttpClient ?? throw new ArgumentNullException(nameof(easyHttpClient));
             Response = new HttpResponseMessage();
+        }
+
+        /// <summary>
+        /// 将Html内容解析为匿名对象
+        /// </summary>
+        /// <returns>解析后的对象</returns>
+        public object? ToJson()
+        {
+            if (string.IsNullOrWhiteSpace(Html))
+            {
+                return null;
+            }
+            try
+            {
+                return JsonSerializer.Deserialize<object>(Html);
+            }
+            catch (JsonException)
+            {
+                // 可以选择记录日志或处理异常
+                return null;
+            }
         }
     }
 
