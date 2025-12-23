@@ -179,25 +179,65 @@ internal class OcrInnerData
 /// <summary>
 /// 阿里云OCR API的独立客户端，无需官方SDK。
 /// 此客户端封装了调用阿里云增值税发票识别API所需的所有逻辑，包括签名计算和HTTP请求。
+/// 支持单个API Key或多个API Key轮询使用。
 /// </summary>
 public class AliyunOcrClient
 {
-    private readonly string _accessKeyId;
-    private readonly string _accessKeySecret;
+    /// <summary>
+    /// 内部类：存储一组API凭证
+    /// </summary>
+    private class KeyCredential
+    {
+        public string AccessKeyId { get; }
+        public string AccessKeySecret { get; }
+
+        public KeyCredential(string accessKeyId, string accessKeySecret)
+        {
+            AccessKeyId = accessKeyId;
+            AccessKeySecret = accessKeySecret;
+        }
+    }
+
+    private readonly List<KeyCredential> _keyCredentials;
     private readonly string _endpoint;
     private readonly HttpClient _httpClient;
     private readonly JsonSerializerOptions _jsonOptions;
+    private int _currentKeyIndex = 0;
+    private readonly object _keyLock = new object();
 
     /// <summary>
-    /// 初始化阿里云OCR客户端。
+    /// 获取当前配置的API Key数量。
+    /// </summary>
+    public int KeyCount => _keyCredentials.Count;
+
+    /// <summary>
+    /// 初始化阿里云OCR客户端（单个API Key）。
     /// </summary>
     /// <param name="accessKeyId">您的阿里云AccessKey ID。</param>
     /// <param name="accessKeySecret">您的阿里云AccessKey Secret。</param>
     /// <param name="endpoint">API接入点，默认为杭州地域。</param>
     public AliyunOcrClient(string accessKeyId, string accessKeySecret, string endpoint = "ocr-api.cn-hangzhou.aliyuncs.com")
+        : this(new[] { (accessKeyId, accessKeySecret) }, endpoint)
     {
-        _accessKeyId = accessKeyId;
-        _accessKeySecret = accessKeySecret;
+    }
+
+    /// <summary>
+    /// 初始化阿里云OCR客户端（多个API Key轮询使用）。
+    /// </summary>
+    /// <param name="credentials">API凭证数组，每个元素为 (AccessKeyId, AccessKeySecret) 元组。</param>
+    /// <param name="endpoint">API接入点，默认为杭州地域。</param>
+    /// <exception cref="ArgumentException">当凭证数组为空时抛出。</exception>
+    public AliyunOcrClient((string accessKeyId, string accessKeySecret)[] credentials, string endpoint = "ocr-api.cn-hangzhou.aliyuncs.com")
+    {
+        if (credentials == null || credentials.Length == 0)
+            throw new ArgumentException("API凭证数组不能为空", nameof(credentials));
+
+        _keyCredentials = new List<KeyCredential>();
+        foreach (var (accessKeyId, accessKeySecret) in credentials)
+        {
+            _keyCredentials.Add(new KeyCredential(accessKeyId, accessKeySecret));
+        }
+
         _endpoint = endpoint.StartsWith("https://") ? endpoint : "https://" + endpoint;
         _httpClient = new HttpClient();
 
@@ -206,6 +246,20 @@ public class AliyunOcrClient
         {
             PropertyNameCaseInsensitive = true,
         };
+    }
+
+    /// <summary>
+    /// 获取下一组API凭证（线程安全的轮询）。
+    /// </summary>
+    /// <returns>下一组要使用的API凭证。</returns>
+    private KeyCredential GetNextCredentials()
+    {
+        lock (_keyLock)
+        {
+            var credential = _keyCredentials[_currentKeyIndex];
+            _currentKeyIndex = (_currentKeyIndex + 1) % _keyCredentials.Count;
+            return credential;
+        }
     }
 
     /// <summary>
@@ -219,12 +273,15 @@ public class AliyunOcrClient
     {
         if (imageStream == null) throw new ArgumentNullException(nameof(imageStream));
 
+        // 获取下一组凭证（轮询）
+        var credential = GetNextCredentials();
+
         // 1. 准备通用请求参数
         var parameters = new Dictionary<string, string>
         {
             { "Format", "JSON" }, // 返回格式为JSON
             { "Version", "2021-07-07" }, // API版本号
-            { "AccessKeyId", _accessKeyId }, // 访问密钥ID
+            { "AccessKeyId", credential.AccessKeyId }, // 访问密钥ID
             { "SignatureMethod", "HMAC-SHA1" }, // 签名方法
             { "Timestamp", DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'") }, // UTC时间戳
             { "SignatureVersion", "1.0" }, // 签名版本
@@ -233,7 +290,7 @@ public class AliyunOcrClient
         };
 
         // 2. 计算签名
-        string signature = Sign(parameters, _accessKeySecret);
+        string signature = Sign(parameters, credential.AccessKeySecret);
         parameters.Add("Signature", signature);
 
         // 3. 构建完整的请求URL
