@@ -57,10 +57,34 @@ public class EasyHttpClient
         }
 
         /// <summary>
-        /// 将Html内容解析为匿名对象
+        /// 将Html内容反序列化为指定泛型T的对象。
+        /// 这适用于您有预定义C#类型来匹配JSON结构的情况。
         /// </summary>
-        /// <returns>解析后的对象</returns>
-        public object? ToJson()
+        /// <typeparam name="T">目标反序列化类型</typeparam>
+        /// <returns>反序列化后的 T 对象，如果反序列化失败则返回 default(T)</returns>
+        public T? ToJson<T>(T anonymousTypeDefinition)
+        {
+            if (string.IsNullOrWhiteSpace(Html))
+            {
+                return default;
+            }
+            try
+            {
+                return JsonSerializer.Deserialize<T>(Html, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (JsonException)
+            {
+                // 可以选择记录日志或处理异常
+                return default;
+            }
+        }
+
+        /// <summary>
+        /// 将Html内容解析为JsonNode，以便于动态访问JSON数据。
+        /// 这适用于您不想创建C#类，只想快速访问JSON中特定字段的场景。
+        /// </summary>
+        /// <returns>解析后的JsonNode对象，如果Html为空或解析失败则返回null。</returns>
+        public System.Text.Json.Nodes.JsonNode? ToJsonNode()
         {
             if (string.IsNullOrWhiteSpace(Html))
             {
@@ -68,7 +92,7 @@ public class EasyHttpClient
             }
             try
             {
-                return JsonSerializer.Deserialize<object>(Html);
+                return System.Text.Json.Nodes.JsonNode.Parse(Html);
             }
             catch (JsonException)
             {
